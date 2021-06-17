@@ -1,0 +1,426 @@
+---
+title: "Credit Card Approval"
+output:
+  word_document: default
+  html_document: default
+---
+## PART 1 : NAIVE BAYES MODELLING
+## STEP 1 : Collecting data
+
+```{r}
+#Setting the working directory where the datasets are stored.
+setwd("W:/DMML1/DMML_1_Project/DataSets/D2_credit_approval/Credit_Card_Approval")
+#Loading two files with application and record of credit of customers
+application <- read.csv("application_record.csv")
+record <- read.csv("credit_record.csv")
+print("The files are stored in application and record varibale as a dataframe")
+```
+
+## STEP 2 : Exploring and Preparing the data
+### STEP 2.1 : Checking the summary and structure of the datasets
+
+```{r}
+#Summary and Structure of Application dataset
+print("The summary and structure of application data is:")
+summary(application)
+str(application)
+#Summary and structure of Credit Record dataset
+print("The summary and structure of credit data is:")
+summary(record)
+str(record)
+#Checking number of unique entries
+print(paste0("Number of Unique records in Application dataset : ",length(unique(application$ID))))
+print(paste0("Number of Unique records in Credit Record dataset : ",length(unique(record$ID))))
+
+```
+
+### STEP 2.2 : Cleaning the application data
+It is evident from the unique ID of both the datasets that the unique id count in application data is 4,38,510 and the unique id count in record data is 45,985. Therefore the duplicated entries from the application dataset needs to be removed.
+```{r}
+#tidyverse used for duplicate function
+library(tidyverse)
+#Removing duplicate rows except for the ID because ID is unique in each row
+application <- application[!duplicated(application[,-1]),]
+str(application)
+#Checking if there are any duplicate values still left in the application dataset
+print("The number of duplciate enteries in the application dataset are: ")
+sum(duplicated(application[,-1]))
+```
+### STEP 2.3 : Cleaning the Record data
+X = Paid dues daily
+C = Debt is clear
+0 = dues pending from 0-29 days
+1 = dues pending from 30-59 days
+2 = dues pending from 60-89 days
+3 = dues pending from 90-119 days
+4 = dues pending from 
+
+```{r}
+#Setting the status of each record in the record dataset
+record$STATUS[record$STATUS=="X"] <- "1"
+record$STATUS[record$STATUS=="C"] <- "1"
+record$STATUS[record$STATUS=="0"] <- "1"
+record$STATUS[record$STATUS=="1"] <- "1"
+record$STATUS[record$STATUS=="2"] <- "0"
+record$STATUS[record$STATUS=="3"] <- "0"
+record$STATUS[record$STATUS=="4"] <- "0"
+record$STATUS[record$STATUS=="5"] <- "0"
+str(record)
+#Setting outcome variable as categorical factor
+record$STATUS <- factor(record$STATUS,levels = c(0,1),labels = c("Not Approved","Approved"))
+
+```
+
+### STEP 2.4 : Combining the datasets basis their Unique ID's
+
+```{r}
+library(Amelia)
+#Merging both the datasets based on the Unique ID's
+final <- merge(application,record,by="ID")
+str(final)
+```
+
+```{r}
+#Checking if there are any Missing Values in the dataset
+missmap(final)
+```
+
+
+
+### STEP 2.5 : Visualizing the dataset
+
+```{r}
+library(GGally)
+plot(final$STATUS,main= "Classification of Approval",ylab="Count",xlab="To approve?",col="blue")
+
+
+```
+
+```{r}
+#The number of Approved and Not approved applications in the dataset are
+as.data.frame(table(final$STATUS))
+```
+
+
+### STEP 2.6 : Changing variables 
+
+```{r}
+#Factorizing all the character variables because for balancing the dataset all the varibales needs to be either numeric or factors
+final$CODE_GENDER <- as.factor(final$CODE_GENDER)
+final$FLAG_OWN_CAR <- as.factor(final$FLAG_OWN_CAR)
+final$FLAG_OWN_REALTY <- as.factor(final$FLAG_OWN_REALTY)
+final$NAME_INCOME_TYPE <- as.factor(final$NAME_INCOME_TYPE)
+final$NAME_EDUCATION_TYPE <- as.factor(final$NAME_EDUCATION_TYPE)
+final$NAME_FAMILY_STATUS <- as.factor(final$NAME_FAMILY_STATUS)
+final$NAME_HOUSING_TYPE <- as.factor(final$NAME_HOUSING_TYPE)
+final$OCCUPATION_TYPE <- as.factor(final$OCCUPATION_TYPE)
+
+
+```
+
+
+## STEP 3 : Data preparation
+## STEP 3.1 : Partioning the data into training and testing subsets
+
+
+
+
+```{r}
+library(caTools)
+library(caret)
+index <- createDataPartition(y=final$STATUS,p=0.75,list = FALSE)
+training <- final[index,]
+testing <- final[-index,]
+print("Dimensions of the training dataset are: ")
+dim(training)
+print("Dimensions of the testing dataset are: ")
+dim(testing)
+print("The percentage of Approved and Not Approved fields in the training dataset are: ")
+prop.table(table(training$STATUS))
+print("The percentage of Approved and Not Approved fields in the testing dataset are: ")
+prop.table(table(testing$STATUS))
+print("Number of approved and not approved values in the training data are:")
+as.data.frame(table(training$STATUS))
+```
+## STEP 3.1. : Removing Unbalancing from the dataset
+
+```{r}
+set.seed(101)
+options(scipen=999)
+library(DMwR)
+#Using SMOTE technique to balance the dataset
+balanced_train <- SMOTE(STATUS~.,data=training,perc.over = 5500,k=2,perc.under = 300)
+#The number of approved and not approved counts after balancing the data 
+as.data.frame(table(balanced_train$STATUS))
+```
+
+## STEP 4 : Training Naive Bayes model
+
+```{r}
+library(e1071)
+#Building a model on the training data 
+train_classifier <- balanced_train[,-20]
+train_label <- balanced_train$STATUS
+approval_classifier <- naiveBayes(train_classifier,train_label)
+
+
+```
+
+## STEP 5 : Evaluating Model Performance
+
+```{r}
+library(gmodels)
+library(caret)
+#Running the trained model on the testing data
+as.data.frame(table(testing$STATUS))
+test_classifier <- testing[,-20]
+test_label <- testing$STATUS
+approval_predict <- predict(approval_classifier,test_classifier)
+#Cross Table for evaluating the performance
+CrossTable(approval_predict,test_label,prop.chisq = F,prop.t=F,
+           dnn = c("predicted","actual"))
+print("The accuracy of the simpel Naive Bayes model with laplace = 0 is : ")
+accuracy <- table(test_label,approval_predict)
+sum(diag(accuracy))/sum(accuracy)
+
+```
+
+```{r}
+#Evaluating the model on the training data itself.
+approval_predicttrain <- predict(approval_classifier,train_classifier)
+#Cross Table for evaluating the performance
+CrossTable(approval_predicttrain,train_label,prop.chisq = F,prop.t=F,
+           dnn = c("predicted","actual"))
+print("The accuracy of the simpel Naive Bayes model with laplace = 0 is : ")
+accuracyabc <- table(train_label,approval_predicttrain)
+sum(diag(accuracyabc))/sum(accuracyabc)
+```
+
+
+
+```{r}
+#Confusion matrix for further evaluatind model's performance
+
+confusionMatrix(approval_predict,test_label)
+```
+
+
+
+
+## STEP 6 : Improving Model Performance
+
+```{r}
+#Training the model with laplace value = 1 
+approval_classifier1 <- naiveBayes(train_classifier,train_label,laplace=1)
+#Running the model on testing subset and evaluating it's performance
+approval_predict1 <- predict(approval_classifier1,test_classifier)
+accuracy1 <- table(test_label,approval_predict1)
+print("The accuracy of the simpel Naive Bayes model with laplace = 1 is : ")
+sum(diag(accuracy1))/sum(accuracy1)
+```
+
+### STEP 6.1: Balancing the testing data
+
+```{r}
+#Balancing the testing data as well and then prediction the values
+as.data.frame(table(testing$STATUS))
+balanced_test <- SMOTE(STATUS~.,data=testing,perc.over = 4500,k=2,perc.under = 300)
+as.data.frame(table(balanced_test$STATUS))
+balanced_test_classifier <- balanced_test[,-20]
+balanced_test_label <- balanced_test$STATUS
+balanced_approval_predict <- predict(approval_classifier1,balanced_test_classifier)
+confusionMatrix(balanced_approval_predict,balanced_test_label)
+
+```
+
+```{r}
+bfscore <- confusionMatrix(balanced_approval_predict,balanced_test_label,mode="prec_recall")
+print("The precision of the naive bayes is: ")
+bfscore$byClass["Precision"]
+```
+
+```{r}
+bfscore$byClass["Recall"]
+```
+
+```{r}
+bfscore$byClass["F1"]
+```
+
+
+### STEP 5.1 : Further Evaluating the performance of the best model
+Evaluating model with laplace =1
+```{r}
+library(caret)
+confusionMatrix(approval_predict1,test_label)
+```
+
+
+```{r}
+# F score of the model
+fscore <- confusionMatrix(approval_predict1,test_label,mode="prec_recall")
+print("The precision of the naive bayes is: ")
+fscore$byClass["Precision"]
+```
+
+
+```{r}
+fscore$byClass["Recall"]
+```
+
+
+```{r}
+fscore$byClass["F1"]
+```
+
+### STEP 5.2 : Evalutating Performance of the best model with ROC curve
+
+```{r}
+library(ROCR)
+rocpredict <- predict(approval_classifier1,test_classifier,type = "raw")
+pred = prediction(rocpredict[,2],test_label)
+pref = performance(pred,"tpr","fpr")
+plot(pref, avg="threshold", colorize=T, lwd=3, main="ROC curve for Naive Bayes with laplace = 1")
+abline(a=0,b=1,lwd=2,lty=2,col="grey")
+```
+
+
+
+
+
+```{r}
+#AUC
+a <- performance(pred,"auc")
+a <- unlist(slot(a,"y.values"))
+a
+```
+
+
+
+
+
+
+
+# PART 2 : RANDOM FOREST MODELLING
+## STEP 1 - STEP 3 remains the same
+## STEP 4 : Training the Random Forest Model
+
+```{r}
+library(randomForest)
+library(caTools)
+memory.limit(size = 56000)
+#Training Random Forest Model
+model_random <- randomForest(train_classifier,train_label)
+model_random
+```
+
+## STEP 5 : Evalutating the model
+
+```{r}
+#Predicting values with the help of trained model for the training data itself
+random_predict <- predict(model_random,train_classifier)
+table(random_predict,train_label)
+accuracyr <- table(train_label,random_predict)
+print("The accuracy of the model on it's own training data is : ")
+sum(diag(accuracyr))/sum(accuracyr)
+#Predicting values with the help of trained model for the testing data
+random_predict1 <- predict(model_random,test_classifier)
+accuracy_test <- table(random_predict1,test_label)
+accuracy_test
+print("The accuracy of the model on testing data is : ")
+sum(diag(accuracy_test))/sum(accuracy_test)
+
+```
+
+
+```{r}
+confusionMatrix(random_predict1,test_label)
+```
+
+## STEP 6 : Improving the model performance
+
+```{r}
+model_random1 <- randomForest(train_classifier,train_label,ntree=500,mtry=6)
+model_random1
+```
+
+```{r}
+random_predict2 <- predict(model_random1,test_classifier)
+confusionMatrix(random_predict2,test_label)
+```
+
+
+
+```{r}
+model_random2 <- randomForest(train_classifier,train_label,ntree=500,mtry=8,importance = T)
+model_random2
+```
+
+
+```{r}
+random_predict3 <- predict(model_random2,test_classifier)
+confusionMatrix(random_predict3,test_label)
+```
+
+
+#Checking the importance of varibale in model training for the best model
+```{r}
+varImpPlot(model_random2)
+```
+
+
+## STEP 5.1 : Further evaluating the best model by ROC curve
+
+```{r}
+rocrandom <- predict(model_random2,test_classifier,type = "prob")
+pred1 = prediction(rocrandom[,2],test_label)
+pref1 = performance(pred,"tpr","fpr")
+plot(pref1, avg="threshold", colorize=T, lwd=3, main="ROC curve for random
+forest" ) 
+abline(a=0,b=1,lwd=2,lty=2,col="grey")
+```
+
+
+```{r}
+#AUC
+ar <- performance(pred1,"auc")
+ar <- unlist(slot(ar,"y.values"))
+ar
+```
+
+
+### STEP 5.2 : Model statistics of the best model
+
+```{r}
+# F score of the best random model 
+frscore <- confusionMatrix(random_predict3,test_label,mode="prec_recall")
+print("The precision of the naive bayes is: ")
+frscore$byClass["Precision"]
+```
+
+
+```{r}
+frscore$byClass["Recall"]
+```
+
+
+```{r}
+frscore$byClass["F1"]
+```
+
+
+# COMPARING NAIVE BAYES AND RANDOM FOREST FOR THIS DATASET
+
+```{r}
+plot(pref, col=1, lwd=3,avg= "threshold", main="ROC curve NB vs RF")
+plot(pref1, col=2, lwd=3, add=TRUE)
+legend(0.6, 0.6, c("NaiveBayes","rforest"), 1:2)
+```
+
+
+
+
+
+
+
+
