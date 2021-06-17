@@ -1,0 +1,283 @@
+---
+title: "Bank Default"
+output:
+  word_document: default
+  html_document: default
+---
+
+# LOGISTIC REGRESSION MODELLING
+## STEP 1 : Collecting Data
+
+```{r}
+setwd("W:/DMML1/DMML_1_Project/DataSets/D5_russian_banks")
+bank <- read.csv("russian_banks.csv")
+```
+
+## STEP 2 : Exploring and Preparing the Data
+
+```{r}
+print("The summary of bank data is:")
+summary(bank)
+print("The structure of bank data is:")
+str(bank)
+```
+
+### STEP 2.1 : Preparing the varibales
+
+```{r}
+library(dplyr)
+#Changing the names of the columns for better understanding
+library(lubridate)
+names(bank)[1] <- "license"
+names(bank)[2] <- "date"
+#Changing the date structure and writing it into separate columns
+bank <- bank %>% mutate(date = ymd(date)) %>% 
+        mutate_at(vars(date), funs(year, month, day))
+
+```
+
+
+
+```{r}
+#Visualising missing values
+library(VIM)
+mv <- aggr(bank,col=c("blue","green"),numbers=T,sortVars=T,labels=names(bank),cex.axis=.7,
+           gap=3,ylab=c("Missing Values","pattern"))
+```
+
+
+### STEP 2.2 : Dealing with NA values in the dataset
+Since the NA values are only in the date and license column so they can be removed from the dataset
+```{r}
+#Checking the number of NA values
+print(paste0("Total NA values in the bank data are: "))
+colSums(is.na(bank))
+#sum(is.na(bank))
+#Deleting the NA values as it won't affect the dataset
+bank <- na.omit(bank)
+
+```
+
+### STEP 2.3 : Finalizing preparing the variables
+
+```{r}
+#Dropping the second column of date as it has already been separated.
+bank <- bank[,-2]
+#Setting Seed value to 999 so that results are constant
+set.seed(999)
+#Factorizing the predictor(dependent) variable
+bank$default <- as.factor(bank$default)
+#Finally checking the structure of the data
+str(bank)
+```
+
+### STEP 2.4 : Visualizing the dataset
+
+```{r}
+#Checking if the dataset in unbalanced
+print("Total number of insolvent banks in the dataset are : ")
+as.data.frame(table(bank$default))
+#Plotting the predictor variable
+plot(bank$default,main= "Classification of Default Banks",ylab="Count",xlab="Bank Insolvency?",col="red")
+
+
+```
+
+
+```{r}
+print("The number of default banks in the data set represented by 1 are: ")
+as.data.frame(table(bank$default))
+```
+
+## STEP 3: Data Preparation
+### STEP 3.1: Creating data partition
+
+```{r}
+#Stratified data partition
+library(caret)
+index <- createDataPartition(y=bank$default,p=0.75,list = FALSE)
+training <- bank[index,]
+testing <- bank[-index,]
+print("The dimensions of the training and testing datasets are:")
+dim(training)
+dim(testing)
+print("Percentage division of default and non default status of banks in the training and testing datasets are:")
+prop.table(table(training$default))*100
+prop.table(table(testing$default))*100
+print("Number of default and non default status of banks in the training and testing datasets are:")
+as.data.frame(table(training$default))
+as.data.frame(table(testing$default))
+```
+
+## STEP 3.2: Dealing with unbalanced data in the training data
+
+```{r}
+#Using SMOTE to balance the training dataset
+set.seed(1040)
+library(DMwR)
+balancedbank <- SMOTE(default~.,training,perc.over = 5500,k=2,perc.under = 200)
+print("Training data after balancing:")
+as.data.frame(table(balancedbank$default))
+```
+
+## STEP 4: Model Training ( Logistic Regression)
+
+```{r}
+#Logistic Regression model with all the columns in the training dataset
+model <- glm(default~.,data = balancedbank,family = binomial)
+summary(model)
+```
+
+## STEP 5: Evaluating Model Performance
+
+```{r}
+#Pseduo R2
+library(pscl)
+pR2(model)
+```
+
+```{r}
+library(caret)
+varImp(model)
+```
+
+Annova test to check model variable significance
+```{r}
+#Anova test
+anova(model, test="Chisq")
+```
+
+
+
+
+### STEP 5.2: Applying the trained model on the testing data
+
+```{r}
+#Applying the model on the testing dataset
+predict1 <- predict(model,newdata=testing,type="response")
+
+bank.predict <- ifelse(predict1 > 0.5 ,1,0)
+
+```
+
+
+```{r}
+#Misclassification error
+mError <- mean(bank.predict != testing$default)
+mError
+```
+
+
+### STEP 5.3: Checking model accuracy
+```{r}
+#CHECKING ACCURACY
+
+print("The accuracy of the model is:")
+accuracy <- 1-mError
+#
+accuracy
+```
+
+
+
+```{r}
+
+table(testing$default)
+table(testing$default, predict1 > 0.5)
+accuracyclass <- table(testing$default,bank.predict)
+sum(diag(accuracyclass))/sum(accuracyclass)
+```
+
+### STEP 5.3: ROC curve of the model
+```{r}
+library(ROCR)
+ROCRpred <- prediction(predict1, testing$default)
+ROCRperf <- performance(ROCRpred, 'tpr','fpr')
+plot(ROCRperf, colorize = TRUE, text.adj = c(-0.2,1.7),main="ROC Curve for Logistic Regression Model")
+abline(a=0,b=1,lwd=2,lty=2,col="grey")
+```
+
+
+```{r}
+aucvalue <- performance(ROCRpred, measure = "auc")
+aucvalue <- aucvalue@y.values[[1]]
+aucvalue
+```
+
+## STEP 6: Improving Model Performance
+
+```{r}
+print("Building a model by selecting appropriate variables accessed by looking at Chi square results in the Annova table.")
+model1 <- glm(default~sunk_retail_credit+NI+sunk_organization_credit
+              +organization_deposit+retail_deposit+retail_credit+
+             zalog_credit_perc+N1+msk_spb+INF_SA+miacr_std+usd_rub_std_diff
+             +other_fin_debt_diff+i_retail_spread_diff+usd_rub_return+
+             stocks_capital_diff+year,data = balancedbank,
+             family = binomial(link = "logit"))
+```
+
+```{r}
+summary(model1)
+```
+
+
+```{r}
+predict2 <- predict(model1,newdata=testing,type="response")
+
+bank.predict1 <- ifelse(predict2 > 0.5 ,1,0)
+```
+
+
+
+
+```{r}
+print("Misclassification of the improved model is:")
+mError1 <- mean(bank.predict1 != testing$default)
+mError1
+print("The accuracy of the improved model is:")
+accuracy1 <- 1-mError1
+accuracy1
+```
+
+
+
+```{r}
+table(testing$default)
+table(testing$default, predict2 > 0.5)
+accuracyclass1 <- table(testing$default,bank.predict1)
+sum(diag(accuracyclass1))/sum(accuracyclass1)
+```
+
+
+
+
+
+```{r}
+library(ROCR)
+ROCRpred1 <- prediction(predict2, testing$default)
+ROCRperf1 <- performance(ROCRpred1, 'tpr','fpr')
+plot(ROCRperf1, colorize = TRUE, text.adj = c(-0.2,1.7),main="ROC Curve for Logistic Regression Model")
+abline(a=0,b=1,lwd=2,lty=2,col="grey")
+```
+
+```{r}
+aucvalue1 <- performance(ROCRpred1, measure = "auc")
+aucvalue1 <- aucvalue1@y.values[[1]]
+aucvalue1
+```
+
+### Step 6.2: Comparing Both the models
+
+```{r}
+plot(ROCRperf, col=1, lwd=3,avg= "threshold", main="ROC curve LR vs LR1")
+plot(ROCRperf1, col=2, lwd=3, add=TRUE)
+legend(0.7, 0.7, c("LR","LR1"), 1:2)
+abline(a=0,b=1,lwd=2,lty=2,col="grey")
+```
+
+
+
+
+
+
+
